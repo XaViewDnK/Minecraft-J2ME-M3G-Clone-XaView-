@@ -314,6 +314,24 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
   }
 
   class MCanvas extends GameCanvas implements Runnable {
+    public boolean showStructureLocator = false;
+    public int locVilX = 0, locVilZ = 0;
+    public boolean locHasVil = false;
+    public int locFortX = 0, locFortZ = 0;
+    public boolean locHasFort = false;
+
+    private double Math_atan2(double y, double x) {
+      if (x == 0.0 && y == 0.0) return 0.0;
+      double ax = Math.abs(x);
+      double ay = Math.abs(y);
+      double a = (ax < ay) ? ax / ay : ay / ax;
+      double s = a * a;
+      double r = ((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a;
+      if (ay > ax) r = 1.57079637 - r;
+      if (x < 0) r = 3.14159274 - r;
+      return (y < 0) ? -r : r;
+    }
+
     private Image imgBubblePop, imgBubble;
     private Image imgArmorHalf, imgArmorFull;
     private Image imgHpEmpty, imgHpHalf, imgHpFull;
@@ -911,6 +929,25 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
             updateTimeOfDay(0);
           }
           isValid = true;
+        } else if (lower.equals("/f3")) {
+          showStructureLocator = !showStructureLocator;
+          addChatMessage("Locator: " + (showStructureLocator ? "ON" : "OFF"));
+          isValid = true;
+        } else if (lower.startsWith("/locate structure ")) {
+          String type = lower.substring(18).trim();
+          if (type.equals("village")) {
+            if (currentDim == 0) {
+              if (locHasVil) addChatMessage("Village at " + locVilX + ", " + locVilZ);
+              else addChatMessage("No village found in cache.");
+            } else addChatMessage("Villages are in the Overworld.");
+            isValid = true;
+          } else if (type.equals("fortress")) {
+            if (currentDim == -1) {
+              if (locHasFort) addChatMessage("Fortress at " + locFortX + ", " + locFortZ);
+              else addChatMessage("No fortress found in cache.");
+            } else addChatMessage("Fortresses are in the Nether.");
+            isValid = true;
+          }
         }
       } catch (Exception e) {
         isValid = false;
@@ -1760,14 +1797,25 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         for (int k = startVI; k < vI; k++) tmpCols[k] = (byte) 255;
         return;
       }
+      boolean hasTexture = (getTexByBlockId(myBlock) != null);
       if (setLight == 0) {
-        for (int k = startVI; k < vI; k++) tmpCols[k] = (byte) 255;
+        if (hasTexture) {
+          for (int k = startVI; k < vI; k++) tmpCols[k] = (byte) 255;
+        }
         return;
       }
       int bl = getLight(x, y, z);
       if (setLight == 1) {
-        byte c = (byte) lightRamp[bl];
-        for (int k = startVI; k < vI; k++) tmpCols[k] = c;
+        int lVal = lightRamp[bl];
+        byte c = (byte) lVal;
+        for (int k = startVI; k < vI; k++) {
+          if (hasTexture) {
+            tmpCols[k] = c;
+          } else {
+            int r = tmpCols[k] & 0xFF;
+            tmpCols[k] = (byte) ((r * lVal) / 255);
+          }
+        }
         return;
       }
       for (int k = startVI; k < vI; k += 3) {
@@ -1786,10 +1834,20 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         if (l0 > 5 && total < 15) total = l0 * 5;
         int avg = total / 5;
         if (avg > 15) avg = 15;
-        byte c = (byte) lightRamp[avg];
-        tmpCols[k] = c;
-        tmpCols[k + 1] = c;
-        tmpCols[k + 2] = c;
+        int lVal = lightRamp[avg];
+        byte c = (byte) lVal;
+        if (hasTexture) {
+          tmpCols[k] = c;
+          tmpCols[k + 1] = c;
+          tmpCols[k + 2] = c;
+        } else {
+          int r = tmpCols[k] & 0xFF;
+          tmpCols[k] = (byte) ((r * lVal) / 255);
+          int g = tmpCols[k + 1] & 0xFF;
+          tmpCols[k + 1] = (byte) ((g * lVal) / 255);
+          int b = tmpCols[k + 2] & 0xFF;
+          tmpCols[k + 2] = (byte) ((b * lVal) / 255);
+        }
       }
     }
 
@@ -1962,7 +2020,20 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
                   if (sd(x, y + 1, z, b)) {
                     int sII = iI;
                     int sVI = vI;
-                    af(x, y, z, 0, vI, R, G, B, h00, h10, h11, h01, yOff);
+                    af(
+                        x,
+                        y,
+                        z,
+                        0,
+                        vI,
+                        R,
+                        G,
+                        B,
+                        (b == GRASS_PATH ? (V_SCALE * 15) / 16 : h00),
+                        (b == GRASS_PATH ? (V_SCALE * 15) / 16 : h10),
+                        (b == GRASS_PATH ? (V_SCALE * 15) / 16 : h11),
+                        (b == GRASS_PATH ? (V_SCALE * 15) / 16 : h01),
+                        yOff);
                     iI += 6;
                     vI += 12;
                     vc += 4;
@@ -2955,6 +3026,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         IndexBuffer[] ibs = new IndexBuffer[6];
         Appearance[] apps = new Appearance[6];
         int[] ind = {0, 1, 2, 0, 2, 3};
+        int[] fCols = {0xFFFF0000, 0xFF00FF00, 0xFF0000FF, 0xFFFFFF00, 0xFF00FFFF, 0xFFFF00FF};
         for (int i = 0; i < 6; i++) {
           int[] fi = new int[6];
           for (int k = 0; k < 6; k++) fi[k] = ind[k] + (i * 4);
@@ -2964,12 +3036,21 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           pm.setCulling(PolygonMode.CULL_NONE);
           pm.setShading(PolygonMode.SHADE_FLAT);
           apps[i].setPolygonMode(pm);
-          Image img = Image.createImage("/j2me_textures/menu/panorama_" + i + ".png");
-          Texture2D tex = new Texture2D(new Image2D(Image2D.RGB, img));
-          tex.setWrapping(Texture2D.WRAP_CLAMP, Texture2D.WRAP_CLAMP);
-          tex.setFiltering(Texture2D.FILTER_LINEAR, Texture2D.FILTER_LINEAR);
-          tex.setBlending(Texture2D.FUNC_REPLACE);
-          apps[i].setTexture(0, tex);
+          Material mat = new Material();
+          mat.setColor(Material.EMISSIVE, fCols[i % 6]);
+          mat.setColor(Material.DIFFUSE, 0x00000000);
+          mat.setColor(Material.AMBIENT, 0x00000000);
+          mat.setVertexColorTrackingEnable(false);
+          apps[i].setMaterial(mat);
+          try {
+            Image img = Image.createImage("/j2me_textures/menu/panorama_" + i + ".png");
+            Texture2D tex = new Texture2D(new Image2D(Image2D.RGB, img));
+            tex.setWrapping(Texture2D.WRAP_CLAMP, Texture2D.WRAP_CLAMP);
+            tex.setFiltering(Texture2D.FILTER_LINEAR, Texture2D.FILTER_LINEAR);
+            tex.setBlending(Texture2D.FUNC_REPLACE);
+            apps[i].setTexture(0, tex);
+          } catch (Exception e) {
+          }
         }
         panoMesh = new Mesh(vb, ibs, apps);
         panoInit = true;
@@ -3329,7 +3410,11 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
     }
 
     private boolean it(byte id) {
-      if (id == LADDER || id == SLAB_COBBLE || id == SLAB_OAK || id == GLASS_PANE) return true;
+      if (id == GRASS_PATH
+          || id == LADDER
+          || id == SLAB_COBBLE
+          || id == SLAB_OAK
+          || id == GLASS_PANE) return true;
       if (id >= PLATE_OAK && id <= PLATE_STONE) return true;
       if (id >= CARPET_BLACK && id <= CARPET_WHITE) return true;
       return id == WHEAT_BLOCK
@@ -5763,6 +5848,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         py = 5.5f;
         pz = 128.5f;
         for (int i = 0; i < chunks.length; i++) chunks[i].dirty = true;
+        new VillageGenerator().generate();
         generateCloudMesh();
         return;
       }
@@ -6494,6 +6580,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
     private float getBlockTop(int x, int y, int z) {
       byte b = getBlock(x, y, z);
       if (b == 0) return y;
+      if (b == GRASS_PATH) return y + 0.9375f;
       if (b == SLAB_COBBLE || b == SLAB_OAK || b == REDSTONE) {
         int d = getData(x, y, z);
         if ((d & 3) == 0) return y + 0.5f;
@@ -7147,7 +7234,11 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
             k_1 = false;
             return;
           }
-          if (((hId >= WOOD_SHOVEL && hId <= DIAMOND_SHOVEL) || hId == STONE_SHOVEL)
+          if ((hId == WOOD_SHOVEL
+                  || hId == STONE_SHOVEL
+                  || hId == IRON_SHOVEL
+                  || hId == GOLD_SHOVEL
+                  || hId == DIAMOND_SHOVEL)
               && (b == GRASS || b == DIRT)) {
             setBlockAndDirty(targetX, targetY, targetZ, GRASS_PATH);
             if (!creativeMode) {
@@ -7667,7 +7758,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       if (sel) g.drawRect(px - sz / 2 - 1, py - 1, sz + 1, sz + 1);
       g.setFont(debugFont);
       g.setColor(0x888888);
-      g.drawString("v0.4.0-prerelease", 2, h - 2, 36);
+      g.drawString("v0.4.0-alpha", 2, h - 2, 36);
       g.drawString("Mojang AB", w - 2, h - 2, 40);
     }
 
@@ -8233,6 +8324,9 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           float h = (d == 1) ? 0.0625f : 0.125f;
           tGlobal.postScale(1.0f, h, 1.0f);
           g3d.render(selMesh, tGlobal);
+        } else if (tb == GRASS_PATH) {
+          tGlobal.postScale(1.0f, 0.9375f, 1.0f);
+          g3d.render(selMesh, tGlobal);
         } else if (tb == REDSTONE) {
           tGlobal.postScale(1.0f, 0.0625f, 1.0f);
           g3d.render(selMesh, tGlobal);
@@ -8258,8 +8352,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         tGlobal.setIdentity();
         tGlobal.postTranslate(f.x - 0.5f, f.y - 0.5f, f.z - 0.5f);
         tGlobal.postScale(1.0f, 1.0f, 1.0f);
-        Texture2D tfb = getTexByBlockId(f.type);
-        if (tfb != null) appDrop.setTexture(0, tfb);
+        setItemTextures(f.type);
         g3d.render(itemMesh, tGlobal);
       }
       for (int i = 0; i < drops.size(); i++) {
@@ -8276,7 +8369,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           tGlobal.setIdentity();
           tGlobal.postTranslate(d.x, d.y + 0.5f + bob + off, d.z);
           tGlobal.postRotate(d.rot + j * 20, 0, 1, 0);
-          if (setDrops == 1) {
+          if (setDrops == 1 || isFlatItem(d.type)) {
             Texture2D tD2 = getTexByBlockId(d.type);
             if (tD2 != null) {
               appDrop.setTexture(0, tD2);
@@ -8372,23 +8465,23 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
             }
           }
         }
-        if (air < 300) {
-          int aY = bY - 10;
-          int av = (air + 29) / 30;
-          for (int i = 0; i < 10; i++) {
-            int ax = sx + (9 * sz) - 9 - i * 8;
-            if (av > i) {
-              if (imgBubble != null) g.drawImage(imgBubble, ax, aY, 0);
-              else {
-                g.setColor(0xADD8E6);
-                g.fillArc(ax, aY, 7, 7, 0, 360);
-              }
-            } else {
-              if (imgBubblePop != null) g.drawImage(imgBubblePop, ax, aY, 0);
-              else {
-                g.setColor(0x00008B);
-                g.drawArc(ax, aY, 7, 7, 0, 360);
-              }
+      }
+      if (air < 300) {
+        int aY = bY - 10;
+        int av = (air + 29) / 30;
+        for (int i = 0; i < 10; i++) {
+          int ax = sx + (9 * sz) - 9 - i * 8;
+          if (av > i) {
+            if (imgBubble != null) g.drawImage(imgBubble, ax, aY, 0);
+            else {
+              g.setColor(0xADD8E6);
+              g.fillArc(ax, aY, 7, 7, 0, 360);
+            }
+          } else {
+            if (imgBubblePop != null) g.drawImage(imgBubblePop, ax, aY, 0);
+            else {
+              g.setColor(0x00008B);
+              g.drawArc(ax, aY, 7, 7, 0, 360);
             }
           }
         }
@@ -8437,6 +8530,50 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           drawnLines++;
         }
       }
+      if (showStructureLocator) {
+        boolean track = false;
+        int tx = 0, tz = 0;
+        String lbl = "";
+        int color = 0xFFFFFF;
+        if (currentDim == 0 && locHasVil) {
+          tx = locVilX;
+          tz = locVilZ;
+          track = true;
+          lbl = "VIL";
+          color = 0x00FF00;
+        } else if (currentDim == -1 && locHasFort) {
+          tx = locFortX;
+          tz = locFortZ;
+          track = true;
+          lbl = "FRT";
+          color = 0xFF0000;
+        }
+        if (track) {
+          double dx = tx - px;
+          double dz = tz - pz;
+          double angToTarget = Math_atan2(dz, dx);
+          double pYaw = (ry + 90) * 3.141592653589793 / 180.0;
+          double diff = angToTarget - pYaw;
+          int cx = 25;
+          int cy = getHeight() - 25;
+          int len = 15;
+          int endX = cx + (int) (Math.cos(diff) * len);
+          int endY = cy + (int) (Math.sin(diff) * len);
+          g.setColor(color);
+          g.drawArc(cx - 18, cy - 18, 36, 36, 0, 360);
+          g.drawLine(cx, cy, endX, endY);
+          g.fillTriangle(
+              endX,
+              endY,
+              endX - (int) (Math.cos(diff + 0.5) * 4),
+              endY - (int) (Math.sin(diff + 0.5) * 4),
+              endX - (int) (Math.cos(diff - 0.5) * 4),
+              endY - (int) (Math.sin(diff - 0.5) * 4));
+          g.setColor(-1);
+          g.setFont(debugFont);
+          g.drawString(lbl, cx - 10, cy - 8, 20);
+        }
+      }
     }
 
     public void setItemTextures(byte id) {
@@ -8462,6 +8599,30 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       appItemRight.setTexture(0, t);
     }
 
+    private boolean isFlatItem(byte id) {
+      if (id >= WOOD_PICKAXE && id <= WOOD_SWORD) return true;
+      if (id == STONE_PICKAXE
+          || id == STONE_AXE
+          || id == STONE_SHOVEL
+          || id == STONE_SWORD
+          || id == STONE_HOE) return true;
+      if (id >= IRON_PICKAXE && id <= IRON_SWORD) return true;
+      if (id >= GOLD_PICKAXE && id <= GOLD_SWORD) return true;
+      if (id >= DIAMOND_PICKAXE && id <= DIAMOND_SWORD) return true;
+      if (id >= WOOD_HOE && id <= DIAMOND_HOE) return true;
+      if (id == SHEARS) return true;
+      if (id >= HELMET_IRON && id <= BOOTS_IRON) return true;
+      if (id >= HELMET_GOLD && id <= BOOTS_GOLD) return true;
+      if (id >= HELMET_DIAMOND && id <= BOOTS_DIAMOND) return true;
+      if (id == STICK || id == DIAMOND || id == FLINT || id == COAL || id == CHARCOAL) return true;
+      if (id == IRON_INGOT || id == GOLD_INGOT || id == EMERALD || id == LAPIS) return true;
+      if (id == FLINT_AND_STEEL || id == GLOWSTONE_DUST || id == QUARTZ || id == REDSTONE)
+        return true;
+      if (id == BUCKET || id == BUCKET_WATER || id == BUCKET_LAVA) return true;
+      if (id == WHEAT_SEEDS || id == WHEAT || id == BREAD) return true;
+      return false;
+    }
+
     private void renderHand() {
       tHand.setIdentity();
       tHand.postTranslate(px, py + 1.6f, pz);
@@ -8475,17 +8636,28 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       tHand.postRotate(45, 0, 1, 0);
       tHand.postScale(0.3f, 0.3f, 0.3f);
       int hI = hotbar[selectedSlot].id;
-      if (isCrossed((byte) hI)) {
+      if (isFlatItem((byte) hI)) {
+        tHand.postRotate(-90, 0, 1, 0);
+        tHand.postTranslate(-0.5f, -0.1f, 0.0f);
+        tHand.postScale(-2.8f, 2.8f, 1.0f);
         Texture2D tH = getTexByBlockId((byte) hI);
         if (tH != null) appDrop.setTexture(0, tH);
         else appDrop.setTexture(0, texBorder);
-      }
-      tHand.postTranslate(-0.5f, -0.5f, -0.5f);
-      tHand.postScale(0.8f, 0.8f, 0.8f);
-      if (isCrossed((byte) hI) && crossedMesh != null) g3d.render(crossedMesh, tHand);
-      else {
-        setItemTextures((byte) hI);
-        g3d.render(itemMesh, tHand);
+        dropFlatVB.setDefaultColor(0xFFFFFFFF);
+        g3d.render(dropFlatVB, dropFlatIB, appDrop, tHand);
+      } else {
+        if (isCrossed((byte) hI)) {
+          Texture2D tH = getTexByBlockId((byte) hI);
+          if (tH != null) appDrop.setTexture(0, tH);
+          else appDrop.setTexture(0, texBorder);
+        }
+        tHand.postTranslate(-0.5f, -0.5f, -0.5f);
+        tHand.postScale(0.8f, 0.8f, 0.8f);
+        if (isCrossed((byte) hI) && crossedMesh != null) g3d.render(crossedMesh, tHand);
+        else {
+          setItemTextures((byte) hI);
+          g3d.render(itemMesh, tHand);
+        }
       }
     }
 
@@ -9066,6 +9238,9 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         int cz = mz + (rand.nextInt(WORLD_Y - 64) - (WORLD_Y - 64) / 2);
         int cy = 28 + rand.nextInt(10);
         genFortPiece(cx, cy, cz, 0, 6, true);
+        locFortX = cx;
+        locFortZ = cz;
+        locHasFort = true;
       }
     }
 
@@ -9521,6 +9696,417 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         }
       }
       return Image.createRGBImage(dstRgb, w, h, true);
+    }
+
+    private class VillageGenerator {
+      private int cx, cz, cy;
+      private Random rnd = new Random();
+      private int countSmithy = 0;
+      private int countChurch = 0;
+      private int countLibrary = 0;
+      private int countFarm = 0;
+      private int totalHouses = 0;
+
+      public void generate() {
+        int searchRad = 32;
+        int startX = WORLD_X / 2;
+        int startZ = WORLD_Y / 2;
+        boolean found = false;
+        for (int i = 0; i < 50; i++) {
+          int tx = startX + (rnd.nextInt() % searchRad);
+          int tz = startZ + (rnd.nextInt() % searchRad);
+          if (tx < 0) tx = -tx;
+          if (tz < 0) tz = -tz;
+          tx += (startX - searchRad / 2);
+          tz += (startZ - searchRad / 2);
+          if (tx < 25 || tx > WORLD_X - 25 || tz < 25 || tz > WORLD_Y - 25) continue;
+          int ty = getTrueGround(tx, tz);
+          byte b = getBlock(tx, ty, tz);
+          if (b != WATER && b != WATER_FLOW && b != AIR) {
+            cx = tx;
+            cz = tz;
+            cy = ty;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          cx = startX;
+          cz = startZ;
+          cy = getTrueGround(cx, cz);
+        }
+        MCanvas.this.locVilX = cx;
+        MCanvas.this.locVilZ = cz;
+        MCanvas.this.locHasVil = true;
+        buildWell(cx, cy, cz);
+        buildRoad(cx, cy, cz, 1, 0, 0, 12);
+        buildRoad(cx, cy, cz, -1, 0, 0, 12);
+        buildRoad(cx, cy, cz, 0, 0, 1, 12);
+        buildRoad(cx, cy, cz, 0, 0, -1, 12);
+        if (totalHouses < 5) {
+          tryBuildBuilding(cx + 6, cy, cz + 6, 1, 0);
+          tryBuildBuilding(cx - 6, cy, cz + 6, -1, 0);
+          tryBuildBuilding(cx + 6, cy, cz - 6, 1, 0);
+          tryBuildBuilding(cx - 6, cy, cz - 6, -1, 0);
+        }
+      }
+
+      private int getTrueGround(int x, int z) {
+        if (x < 0 || x >= WORLD_X || z < 0 || z >= WORLD_Y) return 0;
+        for (int y = WORLD_H - 1; y >= 0; y--) {
+          byte b = getBlock(x, y, z);
+          if (isSolidForBuild(b)) return y;
+        }
+        return 0;
+      }
+
+      private boolean isSolidForBuild(byte b) {
+        return b != AIR
+            && b != BARRIER
+            && b != LEAVES
+            && b != LEAVES_BIRCH
+            && b != LEAVES_SPRUCE
+            && b != LEAVES_JUNGLE
+            && b != PLANT_TALL_GRASS
+            && b != SHORT_GRASS
+            && b != FLOWER_YELLOW
+            && b != FLOWER_RED
+            && b != SNOW_LAYER;
+      }
+
+      private boolean isAreaClear(int x, int y, int z, int wLocal, int dLocal, int angle) {
+        int wWorld = (angle % 2 == 0) ? wLocal : dLocal;
+        int dWorld = (angle % 2 == 0) ? dLocal : wLocal;
+        if (x < 2 || x + wWorld >= WORLD_X - 2 || z < 2 || z + dWorld >= WORLD_Y - 2) return false;
+        for (int i = 0; i < wWorld; i++) {
+          for (int j = 0; j < dWorld; j++) {
+            int checkX = x + i;
+            int checkZ = z + j;
+            int floorY = getTrueGround(checkX, checkZ);
+            if (Math.abs(floorY - y) > 3) return false;
+            for (int k = 1; k < 5; k++) {
+              byte b = getBlock(checkX, y + k, checkZ);
+              if (b != AIR && isSolidForBuild(b)) return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      private void buildRoad(int sx, int sy, int sz, int dx, int dz, int depth, int len) {
+        if (depth > 4) return;
+        int x = sx + dx * 2;
+        int z = sz + dz * 2;
+        int y = sy;
+        for (int i = 0; i < len; i++) {
+          setBlock(x, y, z, GRAVEL);
+          setBlock(x, y + 1, z, AIR);
+          setBlock(x, y + 2, z, AIR);
+          byte under = getBlock(x, y - 1, z);
+          if (!isSolidForBuild(under) || isWater(under)) setBlock(x, y - 1, z, COBBLE);
+          if ((rnd.nextInt() & 0x7FFFFFFF) % 100 < 60) {
+            int sideDirX = -dz;
+            int sideDirZ = dx;
+            if ((rnd.nextInt() & 1) != 0) {
+              sideDirX = dz;
+              sideDirZ = -dx;
+            }
+            int hx = x + sideDirX * 2;
+            int hz = z + sideDirZ * 2;
+            tryBuildBuilding(hx, y, hz, sideDirX, sideDirZ);
+          }
+          x += dx;
+          z += dz;
+          int ny = getTrueGround(x, z);
+          if (Math.abs(ny - y) <= 1) y = ny;
+        }
+        if ((rnd.nextInt() & 0x7FFFFFFF) % 100 < 50) {
+          int turnLen = 5 + (rnd.nextInt() & 0x7FFFFFFF) % 5;
+          buildRoad(x, y, z, dz, dx, depth + 1, turnLen);
+          if ((rnd.nextInt() & 1) != 0) buildRoad(x, y, z, -dz, -dx, depth + 1, turnLen);
+        }
+      }
+
+      private void tryBuildBuilding(int x, int y, int z, int dx, int dz) {
+        int angle = 0;
+        if (dx == 0 && dz == 1) angle = 0;
+        else if (dx == -1 && dz == 0) angle = 1;
+        else if (dx == 0 && dz == -1) angle = 2;
+        else if (dx == 1 && dz == 0) angle = 3;
+        angle = (angle + 2) % 4;
+        int type = (rnd.nextInt() & 0x7FFFFFFF) % 14;
+        if (type >= 10 && countSmithy < 1) {
+          if (isAreaClear(x, y, z, 10, 7, angle)) {
+            buildSmithy(x, y, z, angle);
+            countSmithy++;
+            totalHouses++;
+          }
+          return;
+        }
+        if (type == 9 && countChurch < 1) {
+          if (isAreaClear(x, y, z, 5, 9, angle)) {
+            buildChurch(x, y, z, angle);
+            countChurch++;
+            totalHouses++;
+          }
+          return;
+        }
+        if (type == 8) {
+          if (isAreaClear(x, y, z, 5, 6, angle)) {
+            buildLibrary(x, y, z, angle);
+            countLibrary++;
+            totalHouses++;
+          }
+          return;
+        }
+        if (type == 7 && countFarm < 3) {
+          if (isAreaClear(x, y, z, 7, 9, angle)) {
+            buildFarm(x, y, z, angle);
+            countFarm++;
+            totalHouses++;
+          }
+          return;
+        }
+        if (isAreaClear(x, y, z, 5, 5, angle)) {
+          buildSmallHouse(x, y, z, angle);
+          totalHouses++;
+        }
+      }
+
+      private int[] getRot(int lx, int lz, int angle, int w, int d) {
+        int rx = lx;
+        int rz = lz;
+        if (angle == 0) {
+          rx = lx;
+          rz = lz;
+        } else if (angle == 1) {
+          rx = lz;
+          rz = w - 1 - lx;
+        } else if (angle == 2) {
+          rx = w - 1 - lx;
+          rz = d - 1 - lz;
+        } else if (angle == 3) {
+          rx = d - 1 - lz;
+          rz = lx;
+        }
+        return new int[] {rx, rz};
+      }
+
+      private byte getDoorData(int angle, boolean isTop) {
+        if (isTop) return (byte) (8);
+        int dir = 1;
+        if (angle == 0) dir = 1;
+        else if (angle == 1) dir = 2;
+        else if (angle == 2) dir = 3;
+        else if (angle == 3) dir = 0;
+        return (byte) dir;
+      }
+
+      private byte getTorchData(int angle, int wallPos) {
+        int dir = 4;
+        for (int k = 0; k < angle; k++) {
+          if (dir == 4) dir = 1;
+          else if (dir == 1) dir = 3;
+          else if (dir == 3) dir = 2;
+          else if (dir == 2) dir = 4;
+        }
+        return (byte) dir;
+      }
+
+      private byte rotData(byte id, int data, int angle) {
+        if (angle == 0) return (byte) data;
+        if (id == STAIRS_WOOD || id == STAIRS_COBBLE) {
+          int d = data & 3;
+          int f = data & 4;
+          for (int i = 0; i < angle; i++) {
+            if (d == 0) d = 2;
+            else if (d == 2) d = 1;
+            else if (d == 1) d = 3;
+            else if (d == 3) d = 0;
+          }
+          return (byte) (d | f);
+        }
+        if (id == FURNACE || id == CHEST || id == LADDER) {
+          int d = data;
+          for (int i = 0; i < angle; i++) {
+            if (d == 2) d = 5;
+            else if (d == 5) d = 3;
+            else if (d == 3) d = 4;
+            else if (d == 4) d = 2;
+          }
+          return (byte) d;
+        }
+        return (byte) data;
+      }
+
+      private void place(
+          int ox,
+          int oy,
+          int oz,
+          int lx,
+          int ly,
+          int lz,
+          byte id,
+          int data,
+          int angle,
+          int w,
+          int d) {
+        int[] r = getRot(lx, lz, angle, w, d);
+        int wx = ox + r[0];
+        int wz = oz + r[1];
+        int wy = oy + ly;
+        if (wx < 0 || wx >= WORLD_X || wz < 0 || wz >= WORLD_Y) return;
+        if (ly == 0) {
+          for (int k = 1; k < 4; k++) {
+            byte bel = getBlock(wx, wy - k, wz);
+            if (!isSolidForBuild(bel) || isWater(bel)) setBlock(wx, wy - k, wz, COBBLE);
+            else break;
+          }
+        }
+        if (id == AIR) {
+          if (getBlock(wx, wy, wz) != BEDROCK) setBlock(wx, wy, wz, AIR);
+          return;
+        }
+        setBlock(wx, wy, wz, id);
+        byte finalData = (byte) data;
+        if (id != WOOD_DOOR && id != TORCH) {
+          finalData = rotData(id, data, angle);
+        }
+        setData(wx, wy, wz, finalData & 0xFF);
+        if (id == CHEST) {
+          createTileEntity(wx, wy, wz, id);
+          ChestTE c = getChestAt(wx, wy, wz);
+          if (c != null && (rnd.nextInt() & 1) != 0) {
+            c.items[0].id = APPLE;
+            c.items[0].count = 1;
+          }
+        }
+        if (id == FURNACE) createTileEntity(wx, wy, wz, id);
+      }
+
+      private void buildWell(int x, int y, int z) {
+        for (int i = 0; i < 4; i++)
+          for (int j = 0; j < 4; j++) {
+            boolean isCore = (i >= 1 && i <= 2 && j >= 1 && j <= 2);
+            boolean isCorner =
+                (i == 0 && j == 0)
+                    || (i == 3 && j == 0)
+                    || (i == 0 && j == 3)
+                    || (i == 3 && j == 3);
+            if (isCore) {
+              setBlock(x + i, y, z + j, WATER);
+              setBlock(x + i, y - 1, z + j, WATER);
+            } else {
+              setBlock(x + i, y, z + j, COBBLE);
+            }
+            if (isCorner) {
+              setBlock(x + i, y + 1, z + j, FENCE);
+              setBlock(x + i, y + 2, z + j, FENCE);
+            } else {
+              setBlock(x + i, y + 1, z + j, AIR);
+              setBlock(x + i, y + 2, z + j, AIR);
+            }
+            setBlock(x + i, y + 3, z + j, COBBLE);
+          }
+      }
+
+      private void buildSmallHouse(int x, int y, int z, int ang) {
+        int W = 5, D = 5;
+        for (int yy = 0; yy <= 4; yy++)
+          for (int i = 0; i < W; i++)
+            for (int j = 0; j < D; j++) {
+              if (yy == 0) {
+                place(x, y, z, i, yy, j, COBBLE, 0, ang, W, D);
+                continue;
+              }
+              if (yy == 4) {
+                place(x, y, z, i, yy, j, PLANKS, 0, ang, W, D);
+                continue;
+              }
+              boolean corner = (i == 0 || i == W - 1) && (j == 0 || j == D - 1);
+              boolean wall = (i == 0 || i == W - 1 || j == 0 || j == D - 1);
+              if (corner) place(x, y, z, i, yy, j, WOOD, 0, ang, W, D);
+              else if (wall) place(x, y, z, i, yy, j, PLANKS, 0, ang, W, D);
+              else place(x, y, z, i, yy, j, AIR, 0, ang, W, D);
+            }
+        byte dData = getDoorData(ang, false);
+        place(x, y, z, 2, 1, 0, WOOD_DOOR, dData, ang, W, D);
+        place(x, y, z, 2, 2, 0, WOOD_DOOR, 8, ang, W, D);
+        place(x, y, z, 2, 2, D - 1, GLASS_PANE, 0, ang, W, D);
+        place(x, y, z, 0, 2, 2, GLASS_PANE, 0, ang, W, D);
+        place(x, y, z, W - 1, 2, 2, GLASS_PANE, 0, ang, W, D);
+        place(x, y, z, 2, 2, D - 2, TORCH, getTorchData(ang, 0), ang, W, D);
+      }
+
+      private void buildSmithy(int x, int y, int z, int ang) {
+        int W = 10, D = 7;
+        for (int i = 0; i < W; i++)
+          for (int j = 0; j < D; j++) place(x, y, z, i, 0, j, COBBLE, 0, ang, W, D);
+        for (int i = 0; i < W; i++)
+          for (int j = 0; j < D; j++) place(x, y, z, i, 4, j, SLAB_COBBLE, 0, ang, W, D);
+        for (int yy = 1; yy < 4; yy++) {
+          for (int i = 0; i < W; i++) place(x, y, z, i, yy, D - 1, PLANKS, 0, ang, W, D);
+          for (int j = 0; j < D; j++) place(x, y, z, W - 1, yy, j, PLANKS, 0, ang, W, D);
+          place(x, y, z, 0, yy, 0, COBBLE, 0, ang, W, D);
+          place(x, y, z, 0, yy, 1, COBBLE, 0, ang, W, D);
+          place(x, y, z, 0, yy, 2, COBBLE, 0, ang, W, D);
+        }
+        for (int yy = 1; yy < 4; yy++) place(x, y, z, 5, yy, 0, COBBLE, 0, ang, W, D);
+        place(x, y, z, 1, 1, 1, LAVA, 0, ang, W, D);
+        place(x, y, z, 2, 1, 1, LAVA, 0, ang, W, D);
+        place(x, y, z, 0, 1, 1, FURNACE, 5, ang, W, D);
+        place(x, y, z, 0, 1, 2, FURNACE, 5, ang, W, D);
+        place(x, y, z, 6, 1, 5, CHEST, 0, ang, W, D);
+      }
+
+      private void buildChurch(int x, int y, int z, int ang) {
+        int W = 5, D = 9;
+        for (int i = 0; i < W; i++)
+          for (int j = 0; j < D; j++) place(x, y, z, i, 0, j, COBBLE, 0, ang, W, D);
+        for (int yy = 1; yy < 10; yy++)
+          for (int i = 0; i < W; i++)
+            for (int j = 0; j < D; j++) {
+              boolean wall = (i == 0 || i == W - 1 || j == 0 || j == D - 1);
+              boolean tower = (j >= 5);
+              if (yy > 4 && !tower) continue;
+              if (wall) place(x, y, z, i, yy, j, COBBLE, 0, ang, W, D);
+              else if (yy == 4 && !tower) place(x, y, z, i, yy, j, COBBLE, 0, ang, W, D);
+              else place(x, y, z, i, yy, j, AIR, 0, ang, W, D);
+            }
+        byte dData = getDoorData(ang, false);
+        place(x, y, z, 2, 1, 0, WOOD_DOOR, dData, ang, W, D);
+        place(x, y, z, 2, 2, 0, WOOD_DOOR, 8, ang, W, D);
+        place(x, y, z, 2, 3, 0, GLASS_PANE, 0, ang, W, D);
+        place(x, y, z, 2, 7, D - 1, GLASS_PANE, 0, ang, W, D);
+        place(x, y, z, 2, 6, D - 2, TORCH, getTorchData(ang, 0), ang, W, D);
+      }
+
+      private void buildLibrary(int x, int y, int z, int ang) {
+        buildSmallHouse(x, y, z, ang);
+        int W = 5, D = 5;
+        place(x, y, z, 1, 1, 3, BOOKSHELF, 0, ang, W, D);
+        place(x, y, z, 2, 1, 3, BOOKSHELF, 0, ang, W, D);
+        place(x, y, z, 3, 1, 3, BOOKSHELF, 0, ang, W, D);
+      }
+
+      private void buildFarm(int x, int y, int z, int ang) {
+        int W = 7, D = 9;
+        for (int i = 0; i < W; i++)
+          for (int j = 0; j < D; j++) {
+            boolean border = (i == 0 || i == W - 1 || j == 0 || j == D - 1);
+            if (border) place(x, y, z, i, 0, j, WOOD, 0, ang, W, D);
+            else {
+              boolean wet = (i == 3 && j > 0 && j < D - 1);
+              if (wet) place(x, y, z, i, 0, j, WATER, 0, ang, W, D);
+              else {
+                place(x, y, z, i, 0, j, FARMLAND, 7, ang, W, D);
+                place(x, y, z, i, 1, j, WHEAT_BLOCK, Math.abs(rnd.nextInt()) % 7, ang, W, D);
+              }
+            }
+          }
+      }
+
+      private static final byte APPLE = (byte) 101;
     }
   }
 }
