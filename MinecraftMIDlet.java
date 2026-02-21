@@ -2893,8 +2893,10 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
 
     protected void keyPressed(int k) {
       if (k == -7) {
-        javax.microedition.lcdui.Display.getDisplay(MinecraftMIDlet.this)
-            .setCurrent(MinecraftMIDlet.this._chatBox);
+        if (world != null) {
+          javax.microedition.lcdui.Display.getDisplay(MinecraftMIDlet.this)
+              .setCurrent(MinecraftMIDlet.this._chatBox);
+        }
         return;
       }
       int act = 0;
@@ -6086,6 +6088,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         }
       }
       for (int i = 0; i < chunks.length; i++) chunks[i].dirty = true;
+      new VillageGenerator().generate();
       generateCloudMesh();
       drawLoading(1.0f);
     }
@@ -8552,8 +8555,8 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           double dx = tx - px;
           double dz = tz - pz;
           double angToTarget = Math_atan2(dz, dx);
-          double pYaw = (ry + 90) * 3.141592653589793 / 180.0;
-          double diff = angToTarget - pYaw;
+          double pRad = (ry * 3.141592653589793) / 180.0;
+          double diff = angToTarget + pRad;
           int cx = 25;
           int cy = getHeight() - 25;
           int len = 15;
@@ -9708,33 +9711,37 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       private int totalHouses = 0;
 
       public void generate() {
-        int searchRad = 32;
-        int startX = WORLD_X / 2;
-        int startZ = WORLD_Y / 2;
-        boolean found = false;
+        int bestX = WORLD_X / 2;
+        int bestZ = WORLD_Y / 2;
+        int bestY = 0;
+        long bestScore = -1;
         for (int i = 0; i < 50; i++) {
-          int tx = startX + (rnd.nextInt() % searchRad);
-          int tz = startZ + (rnd.nextInt() % searchRad);
-          if (tx < 0) tx = -tx;
-          if (tz < 0) tz = -tz;
-          tx += (startX - searchRad / 2);
-          tz += (startZ - searchRad / 2);
-          if (tx < 25 || tx > WORLD_X - 25 || tz < 25 || tz > WORLD_Y - 25) continue;
-          int ty = getTrueGround(tx, tz);
-          byte b = getBlock(tx, ty, tz);
-          if (b != WATER && b != WATER_FLOW && b != AIR) {
-            cx = tx;
-            cz = tz;
-            cy = ty;
-            found = true;
-            break;
+          int tx = 30 + (Math.abs(rnd.nextInt()) % (WORLD_X - 60));
+          int tz = 30 + (Math.abs(rnd.nextInt()) % (WORLD_Y - 60));
+          int centerH = getTrueGround(tx, tz);
+          byte centerB = getBlock(tx, centerH, tz);
+          if (centerB == 96 || centerB == 97) continue;
+          long currentScore = 10000;
+          int variance = 0;
+          for (int ox = -4; ox <= 4; ox += 2) {
+            for (int oz = -4; oz <= 4; oz += 2) {
+              int gh = getTrueGround(tx + ox, tz + oz);
+              variance += Math.abs(gh - centerH);
+            }
+          }
+          currentScore -= (variance * 10);
+          if (centerH >= SEA_LEVEL - 2 && centerH <= SEA_LEVEL + 2) currentScore += 500;
+          if (currentScore > bestScore) {
+            bestScore = currentScore;
+            bestX = tx;
+            bestZ = tz;
+            bestY = centerH;
           }
         }
-        if (!found) {
-          cx = startX;
-          cz = startZ;
-          cy = getTrueGround(cx, cz);
-        }
+        cx = bestX;
+        cz = bestZ;
+        cy = bestY;
+        if (cy < SEA_LEVEL) cy = SEA_LEVEL;
         MCanvas.this.locVilX = cx;
         MCanvas.this.locVilZ = cz;
         MCanvas.this.locHasVil = true;
@@ -9743,11 +9750,14 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         buildRoad(cx, cy, cz, -1, 0, 0, 12);
         buildRoad(cx, cy, cz, 0, 0, 1, 12);
         buildRoad(cx, cy, cz, 0, 0, -1, 12);
-        if (totalHouses < 5) {
-          tryBuildBuilding(cx + 6, cy, cz + 6, 1, 0);
-          tryBuildBuilding(cx - 6, cy, cz + 6, -1, 0);
-          tryBuildBuilding(cx + 6, cy, cz - 6, 1, 0);
-          tryBuildBuilding(cx - 6, cy, cz - 6, -1, 0);
+        tryBuildBuilding(cx + 6, cy, cz + 6, 1, 0);
+        tryBuildBuilding(cx - 6, cy, cz + 6, -1, 0);
+        tryBuildBuilding(cx + 6, cy, cz - 6, 1, 0);
+        tryBuildBuilding(cx - 6, cy, cz - 6, -1, 0);
+        for (int k = 0; k < 4; k++) {
+          int rx = cx + (rnd.nextInt() % 20);
+          int rz = cz + (rnd.nextInt() % 20);
+          tryBuildBuilding(rx, cy, rz, 0, 0);
         }
       }
 
@@ -9799,11 +9809,16 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         int z = sz + dz * 2;
         int y = sy;
         for (int i = 0; i < len; i++) {
-          setBlock(x, y, z, GRAVEL);
           setBlock(x, y + 1, z, AIR);
           setBlock(x, y + 2, z, AIR);
-          byte under = getBlock(x, y - 1, z);
-          if (!isSolidForBuild(under) || isWater(under)) setBlock(x, y - 1, z, COBBLE);
+          setBlock(x, y, z, GRAVEL);
+          int fy = y - 1;
+          while (fy > 0) {
+            byte b = getBlock(x, fy, z);
+            if (isSolidForBuild(b) && b != WATER && b != WATER_FLOW) break;
+            setBlock(x, fy, z, COBBLE);
+            fy--;
+          }
           if ((rnd.nextInt() & 0x7FFFFFFF) % 100 < 60) {
             int sideDirX = -dz;
             int sideDirZ = dx;
@@ -9818,7 +9833,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           x += dx;
           z += dz;
           int ny = getTrueGround(x, z);
-          if (Math.abs(ny - y) <= 1) y = ny;
+          if (Math.abs(ny - y) <= 1 && ny >= SEA_LEVEL) y = ny;
         }
         if ((rnd.nextInt() & 0x7FFFFFFF) % 100 < 50) {
           int turnLen = 5 + (rnd.nextInt() & 0x7FFFFFFF) % 5;
@@ -9956,32 +9971,38 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         int wz = oz + r[1];
         int wy = oy + ly;
         if (wx < 0 || wx >= WORLD_X || wz < 0 || wz >= WORLD_Y) return;
-        if (ly == 0) {
-          for (int k = 1; k < 4; k++) {
-            byte bel = getBlock(wx, wy - k, wz);
-            if (!isSolidForBuild(bel) || isWater(bel)) setBlock(wx, wy - k, wz, COBBLE);
-            else break;
+        if (ly == 0 && id != AIR) {
+          setBlock(wx, wy, wz, COBBLE);
+          int fy = wy - 1;
+          while (fy > 0) {
+            byte below = getBlock(wx, fy, wz);
+            if (isSolidForBuild(below) && below != WATER && below != WATER_FLOW) {
+              break;
+            }
+            setBlock(wx, fy, wz, COBBLE);
+            fy--;
           }
-        }
-        if (id == AIR) {
-          if (getBlock(wx, wy, wz) != BEDROCK) setBlock(wx, wy, wz, AIR);
-          return;
-        }
-        setBlock(wx, wy, wz, id);
-        byte finalData = (byte) data;
-        if (id != WOOD_DOOR && id != TORCH) {
-          finalData = rotData(id, data, angle);
-        }
-        setData(wx, wy, wz, finalData & 0xFF);
-        if (id == CHEST) {
-          createTileEntity(wx, wy, wz, id);
-          ChestTE c = getChestAt(wx, wy, wz);
-          if (c != null && (rnd.nextInt() & 1) != 0) {
-            c.items[0].id = APPLE;
-            c.items[0].count = 1;
+        } else {
+          if (id == AIR) {
+            if (getBlock(wx, wy, wz) != BEDROCK) setBlock(wx, wy, wz, AIR);
+            return;
           }
+          setBlock(wx, wy, wz, id);
+          byte finalData = (byte) data;
+          if (id != WOOD_DOOR && id != TORCH) {
+            finalData = rotData(id, data, angle);
+          }
+          setData(wx, wy, wz, finalData & 0xFF);
+          if (id == CHEST) {
+            createTileEntity(wx, wy, wz, id);
+            ChestTE c = getChestAt(wx, wy, wz);
+            if (c != null && (rnd.nextInt() & 1) != 0) {
+              c.items[0].id = APPLE;
+              c.items[0].count = 1;
+            }
+          }
+          if (id == FURNACE) createTileEntity(wx, wy, wz, id);
         }
-        if (id == FURNACE) createTileEntity(wx, wy, wz, id);
       }
 
       private void buildWell(int x, int y, int z) {
