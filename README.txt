@@ -1,3 +1,3 @@
-Current version: 0.4.0-alpha-prealpha2
+Current version: 0.4.0-alpha (Not release ver!)
 ---
 Made by XaView
