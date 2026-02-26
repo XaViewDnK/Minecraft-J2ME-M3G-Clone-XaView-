@@ -3701,25 +3701,27 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       } else gameState = 4;
       int w = getWidth();
       int h = getHeight();
-      int pad = 2;
+      int padScale = Math.max(1, Math.min(w / 240, h / 240));
+      int pad = 2 * padScale;
+      int cols = creativeMode ? 10 : 9;
       if (w < h) {
-        int cols = 10;
-        int colWidth = (w - 4) / cols;
-        slSz = colWidth - pad;
+        slSz = (w - 4) / cols - pad;
         if (slSz < 10) slSz = 10;
-        int totalW = cols * (slSz + pad);
-        guiOx = (w - totalW) / 2;
+        guiOx = (w - cols * (slSz + pad)) / 2;
       } else {
-        slSz = 20;
-        int gridW = 9 * (slSz + pad);
-        guiOx = (w - gridW) / 2;
+        slSz = (h - 24) / 9 - pad;
+        int maxW = (w - 16) / cols - pad;
+        if (slSz > maxW) slSz = maxW;
+        if (slSz < 10) slSz = 10;
+        guiOx = (w - cols * (slSz + pad)) / 2;
       }
+      int th = (slSz + pad) * 9;
+      guiOy = (h - th) / 2;
+      if (creativeMode && guiOy < 16) guiOy = 16;
+      else if (guiOy < 0) guiOy = 0;
       invSection = SEC_HOTBAR;
       invCursorX = selectedSlot;
       invCursorY = 0;
-      int th = (slSz + 2) * 9;
-      guiOy = (h - th) / 2;
-      if (guiOy < 0) guiOy = 0;
       for (int i = 0; i < 9; i++) {
         if (craft[i].count > 0) addToInventory(craft[i].id, craft[i].count);
         craft[i].id = 0;
@@ -6140,6 +6142,58 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
     private void setBlockAndDirty(int x, int y, int z, byte id) {
       if (id == AIR) {
         byte b0 = getBlock(x, y, z);
+        byte bUp = getBlock(x, y + 1, z);
+        if (bUp == MUSHROOM_RED
+            || bUp == MUSHROOM_BROWN
+            || bUp == NETHER_WART
+            || bUp == FLOWER_RED
+            || bUp == FLOWER_YELLOW
+            || bUp == SHORT_GRASS
+            || bUp == PLANT_TALL_GRASS
+            || bUp == DEAD_BUSH
+            || (bUp == TORCH && getData(x, y + 1, z) == 0)) {
+          setBlock(x, y + 1, z, AIR);
+          markChunkDirtyAt(x, z);
+          drops.addElement(new Drop(x + 0.5f, y + 1.5f, z + 0.5f, bUp, 0, 0, 0, 1, 500));
+        } else if (bUp == REEDS || bUp == CACTUS) {
+          int cy = y + 1;
+          while (cy < 64) {
+            if (getBlock(x, cy, z) == bUp) {
+              setBlock(x, cy, z, AIR);
+              markChunkDirtyAt(x, z);
+              drops.addElement(new Drop(x + 0.5f, cy + 0.5f, z + 0.5f, bUp, 0, 0, 0, 1, 500));
+              cy++;
+            } else break;
+          }
+        }
+        byte bR = getBlock(x + 1, y, z);
+        if ((bR == TORCH && getData(x + 1, y, z) == 1)
+            || (bR == LADDER && getData(x + 1, y, z) == 1)) {
+          setBlock(x + 1, y, z, AIR);
+          markChunkDirtyAt(x + 1, z);
+          drops.addElement(new Drop(x + 1.5f, y + 0.5f, z + 0.5f, bR, 0, 0, 0, 1, 500));
+        }
+        byte bL = getBlock(x - 1, y, z);
+        if ((bL == TORCH && getData(x - 1, y, z) == 2)
+            || (bL == LADDER && getData(x - 1, y, z) == 3)) {
+          setBlock(x - 1, y, z, AIR);
+          markChunkDirtyAt(x - 1, z);
+          drops.addElement(new Drop(x - 0.5f, y + 0.5f, z + 0.5f, bL, 0, 0, 0, 1, 500));
+        }
+        byte bF = getBlock(x, y, z + 1);
+        if ((bF == TORCH && getData(x, y, z + 1) == 3)
+            || (bF == LADDER && getData(x, y, z + 1) == 2)) {
+          setBlock(x, y, z + 1, AIR);
+          markChunkDirtyAt(x, z + 1);
+          drops.addElement(new Drop(x + 0.5f, y + 0.5f, z + 1.5f, bF, 0, 0, 0, 1, 500));
+        }
+        byte bB = getBlock(x, y, z - 1);
+        if ((bB == TORCH && getData(x, y, z - 1) == 4)
+            || (bB == LADDER && getData(x, y, z - 1) == 0)) {
+          setBlock(x, y, z - 1, AIR);
+          markChunkDirtyAt(x, z - 1);
+          drops.addElement(new Drop(x + 0.5f, y + 0.5f, z - 0.5f, bB, 0, 0, 0, 1, 500));
+        }
         if (b0 == REEDS || b0 == CACTUS) {
           int cy = y + 1;
           while (cy < WORLD_H) {
@@ -7331,8 +7385,34 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
             else if (lastX == targetX + 1) fd = 1;
             else if (lastZ == targetZ - 1) fd = 4;
             else if (lastZ == targetZ + 1) fd = 3;
+            if (fd == 0 && lastY == targetY - 1) {
+              float dx_t = px - (lastX + 0.5f);
+              float dz_t = pz - (lastZ + 0.5f);
+              boolean wE = isSolid(lastX + 1, lastY, lastZ);
+              boolean wW = isSolid(lastX - 1, lastY, lastZ);
+              boolean wS = isSolid(lastX, lastY, lastZ + 1);
+              boolean wN = isSolid(lastX, lastY, lastZ - 1);
+              if (Math.abs(dx_t) > Math.abs(dz_t)) {
+                if (dx_t > 0 && wW) fd = 1;
+                else if (dx_t <= 0 && wE) fd = 2;
+                else if (dz_t > 0 && wN) fd = 3;
+                else if (dz_t <= 0 && wS) fd = 4;
+              } else {
+                if (dz_t > 0 && wN) fd = 3;
+                else if (dz_t <= 0 && wS) fd = 4;
+                else if (dx_t > 0 && wW) fd = 1;
+                else if (dx_t <= 0 && wE) fd = 2;
+              }
+              if (fd == 0) {
+                if (wW) fd = 1;
+                else if (wE) fd = 2;
+                else if (wN) fd = 3;
+                else if (wS) fd = 4;
+              }
+            }
             boolean valid = true;
-            if (fd == 0 && !isSolid(targetX, targetY, targetZ)) valid = false;
+            if (fd == 0 && (lastY == targetY - 1 || !isSolid(targetX, targetY, targetZ)))
+              valid = false;
             if (valid) {
               setBlockAndDirty(lastX, lastY, lastZ, TORCH);
               setData(lastX, lastY, lastZ, fd);
@@ -7724,31 +7804,38 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       renderPanorama(g);
       int w = getWidth();
       int h = getHeight();
+      int bh = Math.max(24, btnFont.getHeight() + h / 30);
+      int gap = bh + Math.max(2, h / 50);
+      int totalH = gap * 2 + bh;
+      int startY = (h - totalH) / 2 + gap / 2;
+      if (startY < h / 3) startY = h / 3;
       if (logoImg != null) {
-        int targetW = w - 4;
+        int targetW = w - 10;
         int logoW = logoImg.getWidth();
         int logoH = logoImg.getHeight();
-        if (logoW > targetW) {
-          if (scaledLogo == null || lastScW != w) {
-            int newH = (logoH * targetW) / logoW;
-            scaledLogo = resizeImage(logoImg, targetW, newH);
-            lastScW = w;
-          }
-          g.drawImage(scaledLogo, w / 2, 55, Graphics.HCENTER | Graphics.VCENTER);
-        } else {
-          g.drawImage(logoImg, w / 2, 55, Graphics.HCENTER | Graphics.VCENTER);
-          scaledLogo = null;
+        int newH = (logoH * targetW) / logoW;
+        int maxLogoH = startY - 10;
+        if (newH > maxLogoH) {
+          newH = maxLogoH;
+          if (newH < 10) newH = 10;
+          targetW = (logoW * newH) / logoH;
         }
+        if (scaledLogo == null || lastScW != w) {
+          scaledLogo = resizeImage(logoImg, targetW, newH);
+          lastScW = w;
+        }
+        g.drawImage(scaledLogo, w / 2, maxLogoH / 2, Graphics.HCENTER | Graphics.VCENTER);
       } else {
         g.setColor(-1);
-        g.drawString("J2ME Minecraft", w / 2, 40, 17);
+        g.drawString("J2ME Minecraft", w / 2, startY / 2, 17);
       }
-      drawBtn(g, "PLAY", w / 2, 100, menuSelection == 0);
-      drawBtn(g, "SETTINGS", w / 2, 140, menuSelection == 1);
-      int btnRightEdge = w / 2 + 60;
+      drawBtn(g, "PLAY", w / 2, startY, menuSelection == 0);
+      drawBtn(g, "SETTINGS", w / 2, startY + gap, menuSelection == 1);
+      int bw = Math.max(120, w * 3 / 5);
+      int btnRightEdge = w / 2 + bw / 2;
       int px = (btnRightEdge + w) / 2;
-      int py = 180;
-      int sz = 32;
+      int py = startY + gap * 2;
+      int sz = Math.max(32, bh);
       boolean sel = (menuSelection == 2);
       if (profileImg != null) {
         g.drawImage(profileImg, px, py + sz / 2, Graphics.HCENTER | Graphics.VCENTER);
@@ -7768,53 +7855,82 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
     private void renderProfile() {
       Graphics g = getGraphics();
       renderPanorama(g);
+      int w = getWidth();
+      int h = getHeight();
+      int bh = Math.max(24, btnFont.getHeight() + h / 30);
+      int gap = bh + Math.max(2, h / 50);
+      int totalH = gap * 2;
+      int startY = (h - totalH) / 2;
+      if (startY < btnFont.getHeight() * 2 + 10) startY = btnFont.getHeight() * 2 + 10;
       g.setColor(-1);
-      g.drawString("PROFILE", getWidth() / 2, 20, 17);
-      g.drawString("Name: " + MinecraftMIDlet.this.playerName, getWidth() / 2, 60, 17);
-      drawBtn(g, "Nickname", getWidth() / 2, 100, menuSelection == 0);
-      drawBtn(g, "Back", getWidth() / 2, 140, menuSelection == 1);
+      g.drawString("PROFILE", w / 2, startY - gap - btnFont.getHeight() / 2, 17);
+      g.drawString(
+          "Name: " + MinecraftMIDlet.this.playerName,
+          w / 2,
+          startY - gap + (gap - btnFont.getHeight()) / 2,
+          17);
+      drawBtn(g, "Nickname", w / 2, startY, menuSelection == 0);
+      drawBtn(g, "Back", w / 2, startY + gap, menuSelection == 1);
     }
 
     private void renderSetup() {
       if (gameState != 7) return;
       Graphics g = getGraphics();
       renderPanorama(g);
+      int w = getWidth();
+      int h = getHeight();
+      int bh = Math.max(24, btnFont.getHeight() + h / 30);
+      int gap = bh + Math.max(2, h / 50);
+      int totalH = gap * 5;
+      int startY = (h - totalH) / 2;
+      if (startY < btnFont.getHeight() + 5) startY = btnFont.getHeight() + 5;
       g.setColor(-1);
-      g.drawString("WORLD SETTINGS", getWidth() / 2, 20, 17);
+      g.drawString("WORLD SETTINGS", w / 2, startY - gap + (gap - btnFont.getHeight()) / 2, 17);
       drawBtn(
           g,
           "Mode: " + (setupMode == 0 ? "Survival" : "Creative"),
-          getWidth() / 2,
-          80,
+          w / 2,
+          startY,
           menuSelection == 0);
       drawBtn(
           g,
           "TYPE: " + (setupType == 0 ? "Default" : "Flat"),
-          getWidth() / 2,
-          120,
+          w / 2,
+          startY + gap,
           menuSelection == 1);
       drawBtn(
           g,
           "Seed: " + (currentSeed.length() > 0 ? currentSeed : "Random"),
-          getWidth() / 2,
-          160,
+          w / 2,
+          startY + gap * 2,
           menuSelection == 2);
-      drawBtn(g, "CREATE WORLD", getWidth() / 2, 200, menuSelection == 3);
-      drawBtn(g, "Back", getWidth() / 2, 240, menuSelection == 4);
+      drawBtn(g, "CREATE WORLD", w / 2, startY + gap * 3, menuSelection == 3);
+      drawBtn(g, "Back", w / 2, startY + gap * 4, menuSelection == 4);
     }
 
     private void renderPause() {
-      renderGame();
       Graphics g = getGraphics();
-      for (int i = 0; i < getHeight(); i += 2) {
-        g.setColor(0);
-        g.drawLine(0, i, getWidth(), i);
+      if (world != null) {
+        renderGame();
+      } else {
+        renderPanorama(g);
       }
+      int w = getWidth();
+      int h = getHeight();
+      for (int i = 0; i < h; i += 2) {
+        g.setColor(0);
+        g.drawLine(0, i, w, i);
+      }
+      int bh = Math.max(24, btnFont.getHeight() + h / 30);
+      int gap = bh + Math.max(2, h / 50);
+      int totalH = gap * 3;
+      int startY = (h - totalH) / 2;
+      if (startY < btnFont.getHeight() + 5) startY = btnFont.getHeight() + 5;
       g.setColor(-1);
-      g.drawString("PAUSED", getWidth() / 2, 20, 17);
-      drawBtn(g, "Resume", getWidth() / 2, 80, menuSelection == 0);
-      drawBtn(g, "Settings", getWidth() / 2, 120, menuSelection == 1);
-      drawBtn(g, "Quit", getWidth() / 2, 160, menuSelection == 2);
+      g.drawString("PAUSED", w / 2, startY - gap + (gap - btnFont.getHeight()) / 2, 17);
+      drawBtn(g, "Resume", w / 2, startY, menuSelection == 0);
+      drawBtn(g, "Settings", w / 2, startY + gap, menuSelection == 1);
+      drawBtn(g, "Quit", w / 2, startY + gap * 2, menuSelection == 2);
     }
 
     private void renderSettings() {
@@ -7824,74 +7940,103 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       } else {
         renderPanorama(g);
       }
-      for (int i = 0; i < getHeight(); i += 2) {
+      int w = getWidth();
+      int h = getHeight();
+      for (int i = 0; i < h; i += 2) {
         g.setColor(0);
-        g.drawLine(0, i, getWidth(), i);
+        g.drawLine(0, i, w, i);
       }
       g.setColor(-1);
-      int cx = getWidth() / 2;
-      int startY = 60;
-      int gap = 40;
+      int cx = w / 2;
+      int bh = Math.max(24, btnFont.getHeight() + h / 30);
+      int gap = bh + Math.max(2, h / 50);
       if (settingsPage == 0) {
-        g.drawString("SETTINGS", cx, 20, 17);
+        int totalH = gap * 4;
+        int startY = (h - totalH) / 2;
+        if (startY < btnFont.getHeight() + 5) startY = btnFont.getHeight() + 5;
+        g.drawString("SETTINGS", cx, startY - gap + (gap - btnFont.getHeight()) / 2, 17);
         drawBtn(g, "Graphics", cx, startY, menuSelection == 0);
         drawBtn(g, "Sound", cx, startY + gap, menuSelection == 1);
         drawBtn(g, "Other", cx, startY + gap * 2, menuSelection == 2);
         drawBtn(g, "Back", cx, startY + gap * 3, menuSelection == 3);
       } else if (settingsPage == 1) {
-        g.drawString("GRAPHICS", cx, 20, 17);
-        int gy = 50;
-        int gg = 30;
-        int cL = cx - 64;
-        int cR = cx + 64;
-        drawBtn(g, setDrops == 0 ? "Drops: 3D" : "Drops: 2D", cL, gy, menuSelection == 0);
-        drawBtn(g, setLiquid == 0 ? "Liquid: Phys" : "Liquid: Simp", cR, gy, menuSelection == 1);
+        int bw = w / 2 - 8;
+        if (bw > 160) bw = 160;
+        int cL = w / 4;
+        int cR = w * 3 / 4;
+        int totalH = gap * 4;
+        int startY = (h - totalH) / 2;
+        if (startY < btnFont.getHeight() + 5) startY = btnFont.getHeight() + 5;
+        g.drawString("GRAPHICS", cx, startY - gap + (gap - btnFont.getHeight()) / 2, 17);
+        drawBtn(
+            g, setDrops == 0 ? "Drops: 3D" : "Drops: 2D", cL, startY, menuSelection == 0, bw, bh);
+        drawBtn(
+            g, setLiquid == 0 ? "Liq: Phys" : "Liq: Simp", cR, startY, menuSelection == 1, bw, bh);
         drawBtn(
             g,
             setClouds == 0 ? "Cloud: 3D" : (setClouds == 1 ? "Cloud: 2D" : "Cloud: Off"),
             cL,
-            gy + gg,
-            menuSelection == 2);
-        drawBtn(g, setEffects == 0 ? "Fx: ON" : "Fx: OFF", cR, gy + gg, menuSelection == 3);
+            startY + gap,
+            menuSelection == 2,
+            bw,
+            bh);
         drawBtn(
-            g, setAnimations == 1 ? "Anim: ON" : "Anim: OFF", cL, gy + gg * 2, menuSelection == 4);
-        String lStr = "Light: Off";
-        if (setLight == 1) lStr = "Light: Low";
-        if (setLight == 2) lStr = "Light: High";
-        drawBtn(g, lStr, cR, gy + gg * 2, menuSelection == 5);
-        drawBtn(g, "Chunks: " + setChunks, cL, gy + gg * 3, menuSelection == 6);
-        drawBtn(g, "Back", cR, gy + gg * 3, menuSelection == 7);
+            g,
+            setEffects == 0 ? "Fx: ON" : "Fx: OFF",
+            cR,
+            startY + gap,
+            menuSelection == 3,
+            bw,
+            bh);
+        drawBtn(
+            g,
+            setAnimations == 1 ? "Anim: ON" : "Anim: OFF",
+            cL,
+            startY + gap * 2,
+            menuSelection == 4,
+            bw,
+            bh);
+        String lStr = setLight == 1 ? "Light: Low" : (setLight == 2 ? "Light: High" : "Light: Off");
+        drawBtn(g, lStr, cR, startY + gap * 2, menuSelection == 5, bw, bh);
+        drawBtn(g, "Chunks: " + setChunks, cL, startY + gap * 3, menuSelection == 6, bw, bh);
+        drawBtn(g, "Back", cR, startY + gap * 3, menuSelection == 7, bw, bh);
       } else if (settingsPage == 2) {
-        g.drawString("SOUND", cx, 20, 17);
-        int by = 80;
+        int totalH = gap * 2;
+        int startY = (h - totalH) / 2;
+        if (startY < btnFont.getHeight() + 5) startY = btnFont.getHeight() + 5;
+        g.drawString("SOUND", cx, startY - gap + (gap - btnFont.getHeight()) / 2, 17);
+        int bw = Math.max(120, w * 3 / 5);
         if (menuSelection == 0) {
           g.setColor(0x444444);
-          g.fillRect(cx - 60, by, 120, 30);
+          g.fillRect(cx - bw / 2, startY, bw, bh);
           g.setColor(-1);
-          g.drawRect(cx - 60, by, 120, 30);
-          g.drawRect(cx - 59, by + 1, 118, 28);
+          g.drawRect(cx - bw / 2, startY, bw, bh);
+          g.drawRect(cx - bw / 2 + 1, startY + 1, bw - 2, bh - 2);
         } else {
           g.setColor(0x222222);
-          g.fillRect(cx - 60, by, 120, 30);
+          g.fillRect(cx - bw / 2, startY, bw, bh);
           g.setColor(0x888888);
-          g.drawRect(cx - 60, by, 120, 30);
+          g.drawRect(cx - bw / 2, startY, bw, bh);
         }
-        int barW = (116 * setMusic) / 100;
+        int barW = ((bw - 4) * setMusic) / 100;
         g.setColor(0x00AA00);
-        g.fillRect(cx - 58, by + 2, barW, 26);
+        g.fillRect(cx - bw / 2 + 2, startY + 2, barW, bh - 4);
         g.setColor(-1);
-        g.drawString("Vol: " + setMusic + "%", cx, by + 4, 17);
-        drawBtn(g, "Back", cx, 140, menuSelection == 1);
+        g.drawString("Vol: " + setMusic + "%", cx, startY + (bh - btnFont.getHeight()) / 2, 17);
+        drawBtn(g, "Back", cx, startY + gap, menuSelection == 1);
       } else if (settingsPage == 3) {
-        g.drawString("OTHER", cx, 20, 17);
-        drawBtn(g, showFPS ? "Show FPS: ON" : "Show FPS: OFF", cx, 80, menuSelection == 0);
-        drawBtn(g, showXYZ ? "Show XYZ: ON" : "Show XYZ: OFF", cx, 120, menuSelection == 1);
-        drawBtn(g, "Back", cx, 180, menuSelection == 2);
+        int totalH = gap * 3;
+        int startY = (h - totalH) / 2;
+        if (startY < btnFont.getHeight() + 5) startY = btnFont.getHeight() + 5;
+        g.drawString("OTHER", cx, startY - gap + (gap - btnFont.getHeight()) / 2, 17);
+        drawBtn(g, showFPS ? "Show FPS: ON" : "Show FPS: OFF", cx, startY, menuSelection == 0);
+        drawBtn(
+            g, showXYZ ? "Show XYZ: ON" : "Show XYZ: OFF", cx, startY + gap, menuSelection == 1);
+        drawBtn(g, "Back", cx, startY + gap * 2, menuSelection == 2);
       }
     }
 
-    private void drawBtn(Graphics g, String t, int x, int y, boolean s) {
-      int w = 120, h = 30;
+    private void drawBtn(Graphics g, String t, int x, int y, boolean s, int w, int h) {
       g.setFont(btnFont);
       g.setColor(0x666666);
       g.fillRect(x - w / 2, y, w, h);
@@ -7899,7 +8044,14 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       g.drawRect(x - w / 2, y, w, h);
       if (s) g.drawRect(x - w / 2 + 1, y + 1, w - 2, h - 2);
       g.setColor(-1);
-      g.drawString(t, x, y + 4, 17);
+      int th = btnFont.getHeight();
+      g.drawString(t, x, y + (h - th) / 2, 17);
+    }
+
+    private void drawBtn(Graphics g, String t, int x, int y, boolean s) {
+      int w = Math.max(120, getWidth() * 3 / 5);
+      int h = Math.max(24, btnFont.getHeight() + getHeight() / 30);
+      drawBtn(g, t, x, y, s, w, h);
     }
 
     private void drawVerticalString(Graphics g, String s, int x, int y) {
@@ -7924,29 +8076,24 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       boolean nt = (wb || fur || (gameState == 8));
       int w = getWidth();
       int h = getHeight();
-      int pad = 2;
+      int padScale = Math.max(1, Math.min(w / 240, h / 240));
+      int pad = 2 * padScale;
+      int cols = creativeMode ? 10 : 9;
       if (w < h) {
-        int cols = 10;
-        int colWidth = (w - 4) / cols;
-        slSz = colWidth - pad;
+        slSz = (w - 4) / cols - pad;
         if (slSz < 10) slSz = 10;
-        int totalW = cols * (slSz + pad);
-        guiOx = (w - totalW) / 2;
+        guiOx = (w - cols * (slSz + pad)) / 2;
       } else {
-        if (nt) {
-          slSz = 20;
-          int gridW = 9 * (slSz + pad);
-          guiOx = (w - gridW) / 2;
-        } else {
-          int availableH = h - 16;
-          int potentialSz = (int) (availableH / 9.5) - pad;
-          if (potentialSz < 16) potentialSz = 16;
-          if (potentialSz > 22) potentialSz = 22;
-          slSz = potentialSz;
-          int gridW = 9 * (slSz + pad);
-          guiOx = (w - gridW) / 2;
-        }
+        slSz = (h - 24) / 9 - pad;
+        int maxW = (w - 16) / cols - pad;
+        if (slSz > maxW) slSz = maxW;
+        if (slSz < 10) slSz = 10;
+        guiOx = (w - cols * (slSz + pad)) / 2;
       }
+      int th = (slSz + pad) * 9;
+      guiOy = (h - th) / 2;
+      if (creativeMode && guiOy < 16) guiOy = 16;
+      else if (guiOy < 0) guiOy = 0;
       int sz = slSz, cdX = -100, cdY = -100, cW = wb ? 3 : 2, cH = wb ? 3 : 2;
       int hotY = guiOy + (sz + pad) * 8;
       int invY = hotY - (sz + pad) * 3 - 8;
@@ -7991,7 +8138,9 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
             if (idx < libItems.length) {
               Image imgLib = getTexImage(libItems[idx]);
               if (imgLib != null) {
-                g.drawImage(imgLib, x + (sz - 16) / 2, y + (sz - 16) / 2, 20);
+                int targetSz = sz - 4;
+                if (targetSz < 1) targetSz = 1;
+                g.drawImage(getScaledCached(imgLib, targetSz, targetSz), x + 2, y + 2, 20);
               } else {
                 g.setColor(getBlockColor(libItems[idx]));
                 g.fillRect(x + 2, y + 2, sz - 4, sz - 4);
@@ -8005,34 +8154,32 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
               cdY = y;
             }
           }
-        {
-          int _sx = guiOx + 9 * (sz + pad) + 1;
-          int _sy = guiOy;
-          int _sw = 12;
-          int _sh = 8 * (sz + pad) - 3;
-          g.setColor(0x303030);
-          g.fillRect(_sx, _sy, _sw, _sh);
-          g.setColor(0x606060);
-          g.drawRect(_sx, _sy, _sw, _sh);
-          int _tr = (libItems.length + 8) / 9;
-          int _vr = 8;
-          int _ms = _tr - _vr;
-          if (_ms < 1) _ms = 1;
-          int _th = (_vr * _sh) / _tr;
-          if (_th < 14) _th = 14;
-          if (_th > _sh) _th = _sh;
-          int _ty = _sy + (libScroll * (_sh - _th)) / _ms;
-          g.setColor(0xAAAAAA);
-          g.fillRect(_sx, _ty, _sw, _th);
-          g.setColor(0xFFFFFF);
-          g.drawRect(_sx, _ty, _sw, _th);
-          if (k_0 && invSection == SEC_LIB) g.setColor(0xFFFF00);
-          else g.setColor(0x000000);
-          String _s = "0";
-          int _tx = _sx + (_sw - invFont.stringWidth(_s)) / 2;
-          int _tyT = _ty + (_th - invFont.getHeight()) / 2;
-          g.drawString(_s, _tx, _tyT, 20);
-        }
+        int _sx = guiOx + 9 * (sz + pad) + 1;
+        int _sy = guiOy;
+        int _sw = 12;
+        int _sh = 8 * (sz + pad) - 3;
+        g.setColor(0x303030);
+        g.fillRect(_sx, _sy, _sw, _sh);
+        g.setColor(0x606060);
+        g.drawRect(_sx, _sy, _sw, _sh);
+        int _tr = (libItems.length + 8) / 9;
+        int _vr = 8;
+        int _ms = _tr - _vr;
+        if (_ms < 1) _ms = 1;
+        int _th = (_vr * _sh) / _tr;
+        if (_th < 14) _th = 14;
+        if (_th > _sh) _th = _sh;
+        int _ty = _sy + (libScroll * (_sh - _th)) / _ms;
+        g.setColor(0xAAAAAA);
+        g.fillRect(_sx, _ty, _sw, _th);
+        g.setColor(0xFFFFFF);
+        g.drawRect(_sx, _ty, _sw, _th);
+        if (k_0 && invSection == SEC_LIB) g.setColor(0xFFFF00);
+        else g.setColor(0x000000);
+        String _s = "0";
+        int _tx = _sx + (_sw - invFont.stringWidth(_s)) / 2;
+        int _tyT = _ty + (_th - invFont.getHeight()) / 2;
+        g.drawString(_s, _tx, _tyT, 20);
         for (int i = 0; i < 9; i++) {
           int x = guiOx + i * (sz + pad);
           boolean s = (invSection == SEC_HOTBAR && invCursorX == i);
@@ -8124,7 +8271,9 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
                 else if (i == 2) bg = imgArmorLegs;
                 else if (i == 3) bg = imgArmorBoots;
                 if (bg != null) {
-                  g.drawImage(bg, ax + (sz - 16) / 2, y + (sz - 16) / 2, 20);
+                  int targetSz = sz - 4;
+                  if (targetSz < 1) targetSz = 1;
+                  g.drawImage(getScaledCached(bg, targetSz, targetSz), ax + 2, y + 2, 20);
                 }
               }
               if (s) {
@@ -8172,7 +8321,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         int fs = sz + 6, fx = cdX - 3, fy = cdY - 3;
         Image imgCur = getTexImage(cursor.id);
         if (imgCur != null) {
-          g.drawImage(imgCur, fx + (fs - 16) / 2, fy + (fs - 16) / 2, 20);
+          g.drawImage(getScaledCached(imgCur, fs, fs), fx, fy, 20);
         } else {
           g.setColor(getBlockColor(cursor.id));
           g.fillRect(fx, fy, fs, fs);
@@ -8212,7 +8361,9 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       if (s != null && s.count > 0) {
         Image imgSlot = getTexImage(s.id);
         if (imgSlot != null) {
-          g.drawImage(imgSlot, x + (sz - 16) / 2, y + (sz - 16) / 2, 20);
+          int targetSz = sz - 4;
+          if (targetSz < 1) targetSz = 1;
+          g.drawImage(getScaledCached(imgSlot, targetSz, targetSz), x + 2, y + 2, 20);
         } else {
           g.setColor(getBlockColor(s.id));
           g.fillRect(x + 2, y + 2, sz - 4, sz - 4);
@@ -8400,91 +8551,108 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       }
       renderHand();
       g3d.releaseTarget();
-      int cw = getWidth() / 2, ch = getHeight() / 2;
+      int w = getWidth(), h = getHeight();
+      int uiScale = Math.max(1, Math.min(w / 240, h / 240));
+      int cw = w / 2, ch = h / 2;
+      int crossSz = 5 * uiScale;
       g.setColor(-1);
-      g.drawLine(cw - 5, ch, cw + 5, ch);
-      g.drawLine(cw, ch - 5, cw, ch + 5);
-      int sz = 18, sx = (getWidth() - (9 * sz)) / 2, sy = getHeight() - 23;
+      g.drawLine(cw - crossSz, ch, cw + crossSz, ch);
+      g.drawLine(cw, ch - crossSz, cw, ch + crossSz);
+      int sz = 18 * uiScale;
+      int sx = (w - (9 * sz)) / 2;
+      int sy = h - sz - (5 * uiScale);
       g.setFont(debugFont);
-      int bY = sy - 12;
+      int bY = sy - (12 * uiScale);
+      int step = 8 * uiScale;
+      int iconSz = 7 * uiScale;
       if (!creativeMode) {
         int ap = getArmorPoints();
-        int armY = bY - 10;
+        int armY = bY - (10 * uiScale);
         for (int i = 0; i < 10; i++) {
-          int ax = sx + i * 8;
+          int ax = sx + i * step;
           if (ap > i * 2 + 1) {
-            if (imgArmorFull != null) g.drawImage(imgArmorFull, ax, armY, 0);
+            if (imgArmorFull != null)
+              g.drawImage(getScaledCached(imgArmorFull, iconSz, iconSz), ax, armY, 0);
             else {
               g.setColor(0xEEEEEE);
-              g.fillRect(ax, armY, 7, 7);
+              g.fillRect(ax, armY, iconSz, iconSz);
             }
           } else if (ap > i * 2) {
-            if (imgArmorHalf != null) g.drawImage(imgArmorHalf, ax, armY, 0);
+            if (imgArmorHalf != null)
+              g.drawImage(getScaledCached(imgArmorHalf, iconSz, iconSz), ax, armY, 0);
             else {
               g.setColor(0xEEEEEE);
-              g.fillRect(ax, armY, 3, 7);
+              g.fillRect(ax, armY, iconSz / 2, iconSz);
             }
           }
         }
         for (int i = 0; i < 10; i++) {
-          int hx = sx + i * 8;
+          int hx = sx + i * step;
           if (health > i * 2 + 1) {
-            if (imgHpFull != null) g.drawImage(imgHpFull, hx, bY, 0);
+            if (imgHpFull != null)
+              g.drawImage(getScaledCached(imgHpFull, iconSz, iconSz), hx, bY, 0);
             else {
               g.setColor(0xFF0000);
-              g.fillRect(hx, bY, 7, 7);
+              g.fillRect(hx, bY, iconSz, iconSz);
             }
           } else if (health > i * 2) {
-            if (imgHpHalf != null) g.drawImage(imgHpHalf, hx, bY, 0);
+            if (imgHpHalf != null)
+              g.drawImage(getScaledCached(imgHpHalf, iconSz, iconSz), hx, bY, 0);
             else {
               g.setColor(0xFF0000);
-              g.fillRect(hx, bY, 3, 7);
+              g.fillRect(hx, bY, iconSz / 2, iconSz);
             }
           } else {
-            if (imgHpEmpty != null) g.drawImage(imgHpEmpty, hx, bY, 0);
+            if (imgHpEmpty != null)
+              g.drawImage(getScaledCached(imgHpEmpty, iconSz, iconSz), hx, bY, 0);
             else {
               g.setColor(0x440000);
-              g.drawRect(hx, bY, 7, 7);
+              g.drawRect(hx, bY, iconSz, iconSz);
             }
           }
-          int fx = sx + (9 * sz) - 9 - i * 8;
+          int fx = sx + (9 * sz) - step - i * step;
           if (food > i * 2 + 1) {
-            if (imgHungerFull != null) g.drawImage(imgHungerFull, fx, bY, 0);
+            if (imgHungerFull != null)
+              g.drawImage(getScaledCached(imgHungerFull, iconSz, iconSz), fx, bY, 0);
             else {
               g.setColor(0x8B4513);
-              g.fillRect(fx, bY, 7, 7);
+              g.fillRect(fx, bY, iconSz, iconSz);
             }
           } else if (food > i * 2) {
-            if (imgHungerHalf != null) g.drawImage(imgHungerHalf, fx, bY, 0);
+            if (imgHungerHalf != null)
+              g.drawImage(getScaledCached(imgHungerHalf, iconSz, iconSz), fx, bY, 0);
             else {
               g.setColor(0x8B4513);
-              g.fillRect(fx + 4, bY, 3, 7);
+              g.fillRect(fx + iconSz / 2, bY, iconSz / 2, iconSz);
             }
           } else {
-            if (imgHungerEmpty != null) g.drawImage(imgHungerEmpty, fx, bY, 0);
+            if (imgHungerEmpty != null)
+              g.drawImage(getScaledCached(imgHungerEmpty, iconSz, iconSz), fx, bY, 0);
             else {
               g.setColor(0x3B1503);
-              g.drawRect(fx, bY, 7, 7);
+              g.drawRect(fx, bY, iconSz, iconSz);
             }
           }
         }
       }
       if (air < 300) {
-        int aY = bY - 10;
+        int aY = bY - (10 * uiScale);
         int av = (air + 29) / 30;
         for (int i = 0; i < 10; i++) {
-          int ax = sx + (9 * sz) - 9 - i * 8;
+          int ax = sx + (9 * sz) - step - i * step;
           if (av > i) {
-            if (imgBubble != null) g.drawImage(imgBubble, ax, aY, 0);
+            if (imgBubble != null)
+              g.drawImage(getScaledCached(imgBubble, iconSz, iconSz), ax, aY, 0);
             else {
               g.setColor(0xADD8E6);
-              g.fillArc(ax, aY, 7, 7, 0, 360);
+              g.fillArc(ax, aY, iconSz, iconSz, 0, 360);
             }
           } else {
-            if (imgBubblePop != null) g.drawImage(imgBubblePop, ax, aY, 0);
+            if (imgBubblePop != null)
+              g.drawImage(getScaledCached(imgBubblePop, iconSz, iconSz), ax, aY, 0);
             else {
               g.setColor(0x00008B);
-              g.drawArc(ax, aY, 7, 7, 0, 360);
+              g.drawArc(ax, aY, iconSz, iconSz, 0, 360);
             }
           }
         }
@@ -8496,7 +8664,9 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         if (hotbar[i].count > 0) {
           Image imgHud = getTexImage(hotbar[i].id);
           if (imgHud != null) {
-            g.drawImage(imgHud, sx + i * sz + (sz - 16) / 2, sy + (sz - 16) / 2, 20);
+            int targetSz = sz - 4;
+            if (targetSz < 1) targetSz = 1;
+            g.drawImage(getScaledCached(imgHud, targetSz, targetSz), sx + i * sz + 2, sy + 2, 20);
           } else {
             g.setColor(getBlockColor(hotbar[i].id));
             g.fillRect(sx + i * sz + 2, sy + 2, sz - 4, sz - 4);
@@ -8517,19 +8687,16 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         g.drawString("FPS:" + fps, 2, hudY, 20);
       }
       g.setFont(debugFont);
-      int chatBaseY = sy - 12;
+      int chatBaseY = sy - (12 * uiScale);
       int drawnLines = 0;
       for (int i = chatLog.size() - 1; i >= 0; i--) {
         if (drawnLines >= 6) break;
         ChatMsg cm = (ChatMsg) chatLog.elementAt(i);
         if (cm != null) {
-          if (cm.text.indexOf("Invalid command") != -1) {
-            g.setColor(0xFF0000);
-          } else {
-            g.setColor(-1);
-          }
+          if (cm.text.indexOf("Invalid command") != -1) g.setColor(0xFF0000);
+          else g.setColor(-1);
           g.drawString(cm.text, 3, chatBaseY + 1, 20);
-          chatBaseY -= 11;
+          chatBaseY -= (11 * uiScale);
           drawnLines++;
         }
       }
@@ -8557,24 +8724,24 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
           double angToTarget = Math_atan2(dz, dx);
           double pRad = (ry * 3.141592653589793) / 180.0;
           double diff = angToTarget + pRad;
-          int cx = 25;
-          int cy = getHeight() - 25;
-          int len = 15;
+          int cx = 25 * uiScale;
+          int cy = getHeight() - (25 * uiScale);
+          int len = 15 * uiScale;
           int endX = cx + (int) (Math.cos(diff) * len);
           int endY = cy + (int) (Math.sin(diff) * len);
           g.setColor(color);
-          g.drawArc(cx - 18, cy - 18, 36, 36, 0, 360);
+          g.drawArc(cx - (18 * uiScale), cy - (18 * uiScale), 36 * uiScale, 36 * uiScale, 0, 360);
           g.drawLine(cx, cy, endX, endY);
           g.fillTriangle(
               endX,
               endY,
-              endX - (int) (Math.cos(diff + 0.5) * 4),
-              endY - (int) (Math.sin(diff + 0.5) * 4),
-              endX - (int) (Math.cos(diff - 0.5) * 4),
-              endY - (int) (Math.sin(diff - 0.5) * 4));
+              endX - (int) (Math.cos(diff + 0.5) * (4 * uiScale)),
+              endY - (int) (Math.sin(diff + 0.5) * (4 * uiScale)),
+              endX - (int) (Math.cos(diff - 0.5) * (4 * uiScale)),
+              endY - (int) (Math.sin(diff - 0.5) * (4 * uiScale)));
           g.setColor(-1);
           g.setFont(debugFont);
-          g.drawString(lbl, cx - 10, cy - 8, 20);
+          g.drawString(lbl, cx - (10 * uiScale), cy - (8 * uiScale), 20);
         }
       }
     }
@@ -8639,6 +8806,7 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
       tHand.postRotate(45, 0, 1, 0);
       tHand.postScale(0.3f, 0.3f, 0.3f);
       int hI = hotbar[selectedSlot].id;
+      if (hI == 0) return;
       if (isFlatItem((byte) hI)) {
         tHand.postRotate(-90, 0, 1, 0);
         tHand.postTranslate(-0.5f, -0.1f, 0.0f);
@@ -9681,6 +9849,18 @@ public class MinecraftMIDlet extends MIDlet implements javax.microedition.lcdui.
         default:
           return 0xFF00FF;
       }
+    }
+
+    private Image getScaledCached(Image src, int targetW, int targetH) {
+      if (src == null) return null;
+      if (targetW == src.getWidth() && targetH == src.getHeight()) return src;
+      String key = "sc_" + src.hashCode() + "_" + targetW + "x" + targetH;
+      Image sc = (Image) imgCache.get(key);
+      if (sc == null) {
+        sc = resizeImage(src, targetW, targetH);
+        imgCache.put(key, sc);
+      }
+      return sc;
     }
 
     private Image resizeImage(Image src, int w, int h) {
